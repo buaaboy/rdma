@@ -4,8 +4,8 @@ const int TIMEOUT_IN_MS = 500; /* ms */
 
 static int on_addr_resolved(struct rdma_cm_id *id);
 static int on_connection(struct rdma_cm_id *id);
-static int on_disconnect(struct rdma_cm_id *id);
-static int on_event(struct rdma_cm_event *event);
+// static int on_disconnect(struct rdma_cm_id *id);
+// static int on_event(struct rdma_cm_event *event);
 static int on_route_resolved(struct rdma_cm_id *id);
 static void usage(const char *argv0);
 
@@ -34,15 +34,45 @@ int main(int argc, char **argv)
 
   freeaddrinfo(addr);
 
-  while (rdma_get_cm_event(ec, &event) == 0) {
-    struct rdma_cm_event event_copy;
+  // while (rdma_get_cm_event(ec, &event) == 0) {
+  //   struct rdma_cm_event event_copy;
+  //   printf("event type: %d", event->event);
 
-    memcpy(&event_copy, event, sizeof(*event));
-    rdma_ack_cm_event(event);
+  //   memcpy(&event_copy, event, sizeof(*event));
+  //   rdma_ack_cm_event(event);
 
-    if (on_event(&event_copy))
-      break;
+  //   if (on_event(&event_copy))
+  //     break;
+  // }
+  struct rdma_cm_event event_copy;
+  int r = 0;
+  rdma_get_cm_event(ec, &event);
+  memcpy(&event_copy, event, sizeof(*event));
+  rdma_ack_cm_event(event);
+  if ((&event_copy)->event == RDMA_CM_EVENT_ADDR_RESOLVED) {
+    r = on_addr_resolved((&event_copy)->id);
+    if (r == 0);
   }
+
+  rdma_get_cm_event(ec, &event);
+  memcpy(&event_copy, event, sizeof(*event));
+  rdma_ack_cm_event(event);
+  if ((&event_copy)->event == RDMA_CM_EVENT_ROUTE_RESOLVED) {
+    r = on_route_resolved((&event_copy)->id);
+  }
+
+  rdma_get_cm_event(ec, &event);
+  memcpy(&event_copy, event, sizeof(*event));
+  rdma_ack_cm_event(event);
+  if ((&event_copy)->event == RDMA_CM_EVENT_ESTABLISHED) {
+    r = on_connection((&event_copy)->id);
+  }
+    
+  while (1)
+  {
+    /* code */
+  };
+  
 
   rdma_destroy_event_channel(ec);
 
@@ -68,33 +98,33 @@ int on_connection(struct rdma_cm_id *id)
   return 0;
 }
 
-int on_disconnect(struct rdma_cm_id *id)
-{
-  printf("disconnected.\n");
+// int on_disconnect(struct rdma_cm_id *id)
+// {
+//   printf("disconnected.\n");
 
-  destroy_connection(id->context);
-  return 1; /* exit event loop */
-}
+//   destroy_connection(id->context);
+//   return 1; /* exit event loop */
+// }
 
-int on_event(struct rdma_cm_event *event)
-{
-  int r = 0;
+// int on_event(struct rdma_cm_event *event)
+// {
+//   int r = 0;
 
-  if (event->event == RDMA_CM_EVENT_ADDR_RESOLVED)
-    r = on_addr_resolved(event->id);
-  else if (event->event == RDMA_CM_EVENT_ROUTE_RESOLVED)
-    r = on_route_resolved(event->id);
-  else if (event->event == RDMA_CM_EVENT_ESTABLISHED)
-    r = on_connection(event->id);
-  else if (event->event == RDMA_CM_EVENT_DISCONNECTED)
-    r = on_disconnect(event->id);
-  else {
-    fprintf(stderr, "on_event: %d\n", event->event);
-    die("on_event: unknown event.");
-  }
+//   if (event->event == RDMA_CM_EVENT_ADDR_RESOLVED)
+//     r = on_addr_resolved(event->id);
+//   else if (event->event == RDMA_CM_EVENT_ROUTE_RESOLVED)
+//     r = on_route_resolved(event->id);
+//   else if (event->event == RDMA_CM_EVENT_ESTABLISHED)
+//     r = on_connection(event->id);
+//   else if (event->event == RDMA_CM_EVENT_DISCONNECTED)
+//     r = on_disconnect(event->id);
+//   else {
+//     fprintf(stderr, "on_event: %d\n", event->event);
+//     die("on_event: unknown event.");
+//   }
 
-  return r;
-}
+//   return r;
+// }
 
 int on_route_resolved(struct rdma_cm_id *id)
 {

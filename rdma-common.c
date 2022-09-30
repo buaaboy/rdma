@@ -1,6 +1,7 @@
 #include "rdma-common.h"
 
 static const int RDMA_BUFFER_SIZE = 1024;
+// static const int is_client = 1;
 
 struct message {
   enum {
@@ -44,7 +45,7 @@ struct connection {
   enum {
     SS_INIT,
     SS_MR_SENT,
-    SS_RDMA_SENT,
+    // SS_RDMA_SENT,
     SS_DONE_SENT
   } send_state;
 
@@ -201,7 +202,8 @@ void on_completion(struct ibv_wc *wc)
   }
 
   if (conn->send_state == SS_MR_SENT && conn->recv_state == RS_MR_RECV) {
-    struct ibv_send_wr wr, *bad_wr = NULL;
+    // struct ibv_send_wr wr, *bad_wr = NULL;
+    struct ibv_send_wr wr;
     struct ibv_sge sge;
 
     if (s_mode == M_WRITE)
@@ -223,14 +225,14 @@ void on_completion(struct ibv_wc *wc)
     sge.length = RDMA_BUFFER_SIZE;
     sge.lkey = conn->rdma_local_mr->lkey;
 
-    TEST_NZ(ibv_post_send(conn->qp, &wr, &bad_wr));
+    // TEST_NZ(ibv_post_send(conn->qp, &wr, &bad_wr));
 
     conn->send_msg->type = MSG_DONE;
     send_message(conn);
 
   } else if (conn->send_state == SS_DONE_SENT && conn->recv_state == RS_DONE_RECV) {
     printf("remote buffer: %s\n", get_peer_message_region(conn));
-    rdma_disconnect(conn->id);
+    // rdma_disconnect(conn->id);
   }
 }
 
