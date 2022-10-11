@@ -1,7 +1,11 @@
 #include "rdma-common.h"
 
-static const int RDMA_BUFFER_SIZE = 1024;
-// static const int is_client = 1;
+#define PAGE_NUM 4
+static const int RDMA_BUFFER_SIZE = 4096;
+static const int SHOW_INTERVAL = 3;
+// static const int RDMA_BLOCK_NUM = 32;
+static int is_client = 1;
+
 
 struct message {
   enum {
@@ -66,6 +70,7 @@ static void register_memory(struct connection *conn);
 static void send_message(struct connection *conn);
 
 static struct context *s_ctx = NULL;
+static struct connection *s_conn = NULL;
 static enum mode s_mode = M_WRITE;
 
 void die(const char *reason)
@@ -85,6 +90,7 @@ void build_connection(struct rdma_cm_id *id)
   TEST_NZ(rdma_create_qp(id, s_ctx->pd, &qp_attr));
 
   id->context = conn = (struct connection *)malloc(sizeof(struct connection));
+  s_conn = conn;
 
   conn->id = id;
   conn->qp = id->qp;
@@ -96,6 +102,11 @@ void build_connection(struct rdma_cm_id *id)
 
   register_memory(conn);
   post_receives(conn);
+
+  if (!is_client) {
+    pthread_t memory_monitor;
+    TEST_NZ(pthread_create(&memory_monitor, NULL, show_buffer, NULL));
+  }
 }
 
 void build_context(struct ibv_context *verbs)
@@ -181,12 +192,15 @@ char * get_peer_message_region(struct connection *conn)
 void on_completion(struct ibv_wc *wc)
 {
   struct connection *conn = (struct connection *)(uintptr_t)wc->wr_id;
-
-  if (wc->status != IBV_WC_SUCCESS)
+  if (wc->status != IBV_WC_SUCCESS) {
+    // printf("OPCODE %d\n", wc->opcode);
     die("on_completion: status is not IBV_WC_SUCCESS.");
+  }
 
   if (wc->opcode & IBV_WC_RECV) {
-    conn->recv_state++;
+    if (conn->recv_state != RS_DONE_RECV) {
+      conn->recv_state++;
+    } 
 
     if (conn->recv_msg->type == MSG_MR) {
       memcpy(&conn->peer_mr, &conn->recv_msg->data.mr, sizeof(conn->peer_mr));
@@ -197,13 +211,16 @@ void on_completion(struct ibv_wc *wc)
     }
 
   } else {
-    conn->send_state++;
-    printf("send completed successfully.\n");
+    if (conn->send_state != SS_DONE_SENT) {
+      conn->send_state++;
+      printf("send completed successfully.\n");
+    }
   }
 
   if (conn->send_state == SS_MR_SENT && conn->recv_state == RS_MR_RECV) {
     // struct ibv_send_wr wr, *bad_wr = NULL;
     struct ibv_send_wr wr;
+    // struct ibv_send_wr *bad_wr = NULL;
     struct ibv_sge sge;
 
     if (s_mode == M_WRITE)
@@ -231,7 +248,10 @@ void on_completion(struct ibv_wc *wc)
     send_message(conn);
 
   } else if (conn->send_state == SS_DONE_SENT && conn->recv_state == RS_DONE_RECV) {
-    printf("remote buffer: %s\n", get_peer_message_region(conn));
+    // if (!is_client)
+    // {
+    //   printf("remote buffer: %s\n", get_peer_message_region(conn));
+    // }
     // rdma_disconnect(conn->id);
   }
 }
@@ -277,11 +297,13 @@ void post_receives(struct connection *conn)
 
 void register_memory(struct connection *conn)
 {
+  int pagesize = sysconf(_SC_PAGE_SIZE);
+  
   conn->send_msg = malloc(sizeof(struct message));
   conn->recv_msg = malloc(sizeof(struct message));
 
-  conn->rdma_local_region = malloc(RDMA_BUFFER_SIZE);
-  conn->rdma_remote_region = malloc(RDMA_BUFFER_SIZE);
+  conn->rdma_local_region = malloc(pagesize*PAGE_NUM);
+  conn->rdma_remote_region = malloc(pagesize*PAGE_NUM);
 
   TEST_Z(conn->send_mr = ibv_reg_mr(
     s_ctx->pd, 
@@ -298,13 +320,13 @@ void register_memory(struct connection *conn)
   TEST_Z(conn->rdma_local_mr = ibv_reg_mr(
     s_ctx->pd, 
     conn->rdma_local_region, 
-    RDMA_BUFFER_SIZE, 
+    pagesize*PAGE_NUM, 
     ((s_mode == M_WRITE) ? 0 : IBV_ACCESS_LOCAL_WRITE)));
 
   TEST_Z(conn->rdma_remote_mr = ibv_reg_mr(
     s_ctx->pd, 
     conn->rdma_remote_region, 
-    RDMA_BUFFER_SIZE, 
+    pagesize*PAGE_NUM, 
     ((s_mode == M_WRITE) ? (IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE) : IBV_ACCESS_REMOTE_READ)));
 }
 
@@ -343,4 +365,47 @@ void send_mr(void *context)
 void set_mode(enum mode m)
 {
   s_mode = m;
+}
+
+void do_rdma_send(char *send_word, int index) {
+  struct connection *conn = s_conn;
+  void * context = (void *)conn;
+  struct ibv_send_wr wr;
+  struct ibv_send_wr *bad_wr = NULL;
+  struct ibv_sge sge;
+  int pagesize = sysconf(_SC_PAGE_SIZE);
+
+  memcpy(get_local_message_region(context), send_word, pagesize);
+  memset(&wr, 0, sizeof(wr));
+  wr.wr_id = (uintptr_t)conn;
+  wr.opcode = IBV_WR_RDMA_WRITE;
+  wr.sg_list = &sge;
+  wr.num_sge = 1;
+  wr.send_flags = IBV_SEND_SIGNALED;
+  // wr.imm_data = index;
+  wr.wr.rdma.remote_addr = (uintptr_t)conn->peer_mr.addr+index*pagesize;
+  wr.wr.rdma.rkey = conn->peer_mr.rkey;
+
+  sge.addr = (uintptr_t)conn->rdma_local_region;
+  sge.length = pagesize;
+  sge.lkey = conn->rdma_local_mr->lkey;
+
+  TEST_NZ(ibv_post_send(conn->qp, &wr, &bad_wr));
+}
+
+void * show_buffer() {
+  int pagesize = sysconf(_SC_PAGE_SIZE);
+  while(1) {
+    sleep(SHOW_INTERVAL);
+    for (int i = 0; i < PAGE_NUM; i++) {
+      printf("BLOCK %d:%s\n", i, get_peer_message_region(s_conn)+i*pagesize);
+    }
+    puts("");
+    // printf("remote buffer: %s\n", get_peer_message_region(s_conn));  
+  }
+  return NULL;
+}
+
+void set_client(int cli) {
+  is_client = cli;
 }
