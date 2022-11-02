@@ -1,5 +1,6 @@
 #include "rdma-common.h"
 #include "message.h"
+#include "data-sender.h"
  
 #define MAX_PAGE_NUM 64
 #define SHOW_INTERVAL 3
@@ -13,29 +14,36 @@ const int TIMEOUT_IN_MS = 500; /* ms */
 long uffd;          /* userfaultfd file descriptor */
 static char* mapped_mem;
 
-static int on_addr_resolved(struct rdma_cm_id *id);
-static int on_connection(struct rdma_cm_id *id);
+int on_addr_resolved(struct rdma_cm_id *id);
+int on_connection(struct rdma_cm_id *id);
 // static int on_disconnect(struct rdma_cm_id *id);
-static int on_event(struct rdma_cm_event *event);
-static int on_route_resolved(struct rdma_cm_id *id);
-static void * show_buffer_client();
-static void * check_and_rdmasend();
-static void usage(const char *argv0);
+int on_event(struct rdma_cm_event *event);
+int on_route_resolved(struct rdma_cm_id *id);
+void * show_buffer_client();
+void * check_and_rdmasend();
+void usage(const char *argv0);
 // static void pagefault_registrate();
 
-static int written_flag = 0;
-static int written_page_id[MAX_PAGE_NUM];
+int written_flag = 0;
+int written_page_id[MAX_PAGE_NUM];
 
-static u_int64_t get_page_index(__u64 addr);
-static void set_page_written(uint64_t page_index);
+u_int64_t get_page_index(__u64 addr);
+void set_page_written(uint64_t page_index);
 // static void segv_handler(int sig, siginfo_t *si, void *unused);
 
-static void * fault_handler_thread(void *arg);
-static void handler_setup();
+void * fault_handler_thread(void *arg);
+void handler_setup();
 
+void * client_map();
 
-int main(int argc, char **argv)
-{
+void start_invocation(char * arg_addr) {
+  mapped_mem = arg_addr;
+  pthread_t test_thr;
+  pthread_create(&test_thr, NULL, client_map, NULL);
+}
+
+void * client_map() {
+
   struct addrinfo *addr;
   struct rdma_cm_event *event = NULL;
   struct rdma_cm_id *conn= NULL;
@@ -43,27 +51,17 @@ int main(int argc, char **argv)
 
   set_client(1);
 
-  if (argc != 4)
-    usage(argv[0]);
-
-  PAGE_NUM = atoi(argv[3]);
+  PAGE_NUM = 4;
   if(PAGE_NUM > MAX_PAGE_NUM) 
     die("TOO MUCH PAGE!!!");
-
-  if (strcmp(argv[1], "write") == 0)
-    set_mode(M_WRITE);
-  else if (strcmp(argv[1], "read") == 0)
-    set_mode(M_READ);
-  else
-    usage(argv[0]);
 
   // ------------------ SETUP PAGE FAULT HANDLER ------------------
   pagesize = sysconf(_SC_PAGE_SIZE);
   printf("page size is:%d\n", pagesize);
-  handler_setup(); 
+  handler_setup();
 
   // ------------------ BUILD RDMA CONNECTION ------------------
-  TEST_NZ(getaddrinfo(argv[2], DEFAULT_PORT, NULL, &addr));
+  TEST_NZ(getaddrinfo("192.168.112.129", DEFAULT_PORT, NULL, &addr));
 
   TEST_Z(ec = rdma_create_event_channel());
   TEST_NZ(rdma_create_id(ec, &conn, NULL, RDMA_PS_TCP));
@@ -379,8 +377,8 @@ void handler_setup() {
     actually touch the memory, it will be allocated via
     the userfaultfd. */
 
-  mapped_mem = mmap(NULL, len, PROT_READ | PROT_WRITE,
-              MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  // mapped_mem = mmap(NULL, len, PROT_READ | PROT_WRITE,
+  //             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (mapped_mem == MAP_FAILED)
       die("mmap");
 

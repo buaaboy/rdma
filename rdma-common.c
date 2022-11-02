@@ -1,12 +1,13 @@
 #include "rdma-common.h"
 
-#define PAGE_NUM 4
+ 
 static const int RDMA_BUFFER_SIZE = 4096;
 static const int SHOW_INTERVAL = 3;
-// static const int RDMA_BLOCK_NUM = 32;
 static int is_client = 1;
 
-
+extern int PAGE_NUM;
+extern int pagesize; 
+ 
 struct message {
   enum {
     MSG_MR,
@@ -49,7 +50,6 @@ struct connection {
   enum {
     SS_INIT,
     SS_MR_SENT,
-    // SS_RDMA_SENT,
     SS_DONE_SENT
   } send_state;
 
@@ -192,10 +192,8 @@ char * get_peer_message_region(struct connection *conn)
 void on_completion(struct ibv_wc *wc)
 {
   struct connection *conn = (struct connection *)(uintptr_t)wc->wr_id;
-  if (wc->status != IBV_WC_SUCCESS) {
-    // printf("OPCODE %d\n", wc->opcode);
+  if (wc->status != IBV_WC_SUCCESS) 
     die("on_completion: status is not IBV_WC_SUCCESS.");
-  }
 
   if (wc->opcode & IBV_WC_RECV) {
     if (conn->recv_state != RS_DONE_RECV) {
@@ -293,12 +291,10 @@ void post_receives(struct connection *conn)
   sge.lkey = conn->recv_mr->lkey;
 
   TEST_NZ(ibv_post_recv(conn->qp, &wr, &bad_wr));
-}
+} 
 
 void register_memory(struct connection *conn)
-{
-  int pagesize = sysconf(_SC_PAGE_SIZE);
-  
+{ 
   conn->send_msg = malloc(sizeof(struct message));
   conn->recv_msg = malloc(sizeof(struct message));
 
@@ -328,7 +324,7 @@ void register_memory(struct connection *conn)
     conn->rdma_remote_region, 
     pagesize*PAGE_NUM, 
     ((s_mode == M_WRITE) ? (IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE) : IBV_ACCESS_REMOTE_READ)));
-}
+}  
 
 void send_message(struct connection *conn)
 {
@@ -365,15 +361,14 @@ void send_mr(void *context)
 void set_mode(enum mode m)
 {
   s_mode = m;
-}
+} 
 
-void do_rdma_send(char *send_word, int index) {
+void rdma_write(char *send_word, int index) {
   struct connection *conn = s_conn;
   void * context = (void *)conn;
   struct ibv_send_wr wr;
   struct ibv_send_wr *bad_wr = NULL;
   struct ibv_sge sge;
-  int pagesize = sysconf(_SC_PAGE_SIZE);
 
   memcpy(get_local_message_region(context), send_word, pagesize);
   memset(&wr, 0, sizeof(wr));
@@ -394,7 +389,6 @@ void do_rdma_send(char *send_word, int index) {
 }
 
 void * show_buffer() {
-  int pagesize = sysconf(_SC_PAGE_SIZE);
   while(1) {
     sleep(SHOW_INTERVAL);
     for (int i = 0; i < PAGE_NUM; i++) {

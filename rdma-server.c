@@ -1,10 +1,14 @@
 #include "rdma-common.h"
+#include "message.h"
 
 static int on_connect_request(struct rdma_cm_id *id);
 static int on_connection(struct rdma_cm_id *id);
 static int on_disconnect(struct rdma_cm_id *id);
 static int on_event(struct rdma_cm_event *event);
 static void usage(const char *argv0);
+
+int PAGE_NUM; 
+int pagesize;
 
 int main(int argc, char **argv)
 {
@@ -13,6 +17,8 @@ int main(int argc, char **argv)
   struct rdma_cm_id *listener = NULL;
   struct rdma_event_channel *ec = NULL;
   uint16_t port = 0;
+  set_client(0);
+  
 
   if (argc != 2)
     usage(argv[0]);
@@ -26,6 +32,7 @@ int main(int argc, char **argv)
 
   memset(&addr, 0, sizeof(addr));
   addr.sin6_family = AF_INET6;
+  addr.sin6_port = htons(atoi(DEFAULT_PORT));
 
   TEST_Z(ec = rdma_create_event_channel());
   TEST_NZ(rdma_create_id(ec, &listener, NULL, RDMA_PS_TCP));

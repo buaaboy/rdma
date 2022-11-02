@@ -1,7 +1,8 @@
 #ifndef RDMA_COMMON_H
 #define RDMA_COMMON_H
 
-#include <netdb.h>
+#define _GNU_SOURCE
+#include <netdb.h> 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,13 +10,32 @@
 #include <rdma/rdma_cma.h>
 #include <malloc.h>
 #include <errno.h>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/syscall.h>
 #include <signal.h>
+#include <inttypes.h>
+#include <sys/types.h>
+#include <stdio.h>
+#include <linux/userfaultfd.h>
+#include <pthread.h>
+#include <errno.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <poll.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <sys/syscall.h>
+#include <sys/ioctl.h>
+#include <poll.h>
+#include <malloc.h>
+
 
 #define TEST_NZ(x) do { if ( (x)) die("error: " #x " failed (returned non-zero)." ); } while (0)
 #define TEST_Z(x)  do { if (!(x)) die("error: " #x " failed (returned zero/null)."); } while (0)
 
-const char * DEFAULT_PORT = "12345";
 
 enum mode {
   M_WRITE,
@@ -32,7 +52,7 @@ void on_connect(void *context);
 void send_mr(void *context);
 void set_mode(enum mode m);
 
-void do_rdma_send(char *send_word, int index);
+void rdma_write(char *send_word, int index);
 void * show_buffer();
 void set_client(int cli);
 
